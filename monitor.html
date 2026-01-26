@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>滷香饌 - 自動接單後台</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <style>
+        body { font-family: monospace; background: #222; color: #0f0; padding: 20px; }
+        .status { font-size: 24px; margin-bottom: 20px; border-bottom: 1px solid #444; padding-bottom: 10px; }
+        .log { font-size: 14px; color: #ccc; }
+        button { font-size: 20px; padding: 10px 20px; cursor: pointer; background: #004400; color: white; border: none; }
+        
+        /* 列印樣式 (熱感應紙) */
+        @media print {
+            @page { margin: 0; }
+            body { background: white; color: black; margin: 0; padding: 5px; width: 58mm; font-size: 14px; }
+            .no-print { display: none !important; }
+            .receipt { display: block !important; }
+        }
+        .receipt { display: none; } /* 平常隱藏收據內容 */
+        .item { display: flex; justify-content: space-between; margin-bottom: 2px; }
+        .section { border-bottom: 1px dashed #000; padding-bottom: 5px; margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+
+    <div class="no-print">
+        <div class="status">
+            🖨️ 自動接單監控中... <span id="last-update"></span><br>
+            目前最新單號：<span id="current-id" style="color: yellow;">讀取中...</span>
+        </div>
+        <button onclick="startMonitor()">🔴 點此開始接收訂單</button>
+        <div class="log" id="log-area"></div>
+    </div>
+
+    <div id="receipt-area" class="receipt"></div>
+
+    <script>
+        // 🔴 請填入你的 orders 分頁 CSV 網址
+        const ordersCsvUrl = "你的_orders_分頁_CSV_網址";
+
+        let lastOrderId = localStorage.getItem('lastPrintedId') || "無";
+        let isRunning = false;
+        let checkInterval;
+
+        document.getElementById('current-id').innerText = lastOrderId;
+
+        function startMonitor() {
+            if (isRunning) return;
+            isRunning = true;
+            document.querySelector('button').innerText = "🟢 監控中 (請勿關閉視窗)";
+            log("系統啟動，每 5 秒檢查一次...");
+            
+            // 立即檢查一次，然後設定定時器
+            checkOrders();
+            checkInterval = setInterval(checkOrders, 5000);
+        }
+
+        function checkOrders() {
+            document.getElementById('last-update').innerText = new Date().toLocaleTimeString();
+            
+            Papa.parse(ordersCsvUrl, {
+                download: true,
+                header: false, // 因為標題行可能變動，我們直接用索引
+                complete: function(results) {
+                    let rows = results.data;
+                    // 過濾掉空行和標題 (假設第一欄是單號)
+                    // 我們抓最後一筆資料
+                    let lastRow = rows[rows.length - 1];
+                    if (!lastRow || lastRow[0] === "單號") return; // 沒資料
+
+                    let serverId = lastRow[0]; // 單號在第1欄 (A欄)
+                    let jsonStr = lastRow[8]; // JSON詳細資料在第9欄 (I欄)，記得 GAS 那邊要存進去
+
+                    // 如果發現新單號 (比現在記錄的單號大，或是不一樣)
+                    if (serverId !== lastOrderId && serverId.startsWith("#")) {
+                        log(`發現新訂單！單號：${serverId}`);
+                        lastOrderId = serverId;
+                        localStorage.setItem('lastPrintedId', serverId);
+                        document.getElementById('current-id').innerText = serverId;
+
+                        // 執行列印
+                        try {
+                            let orderData = JSON.parse(jsonStr);
+                            printOrder(orderData);
+                        } catch (e) {
+                            log("解析訂單錯誤，嘗試列印簡易版...");
+                            // 如果 JSON 解析失敗，至少印出 Excel 裡的文字
+                            printSimple(lastRow);
+                        }
+                    }
+                }
+            });
+        }
+
+        function printOrder(data) {
+            let html = `
+                <div style="text-align:center; font-size:18px; font-weight:bold;">滷香饌</div>
+                <div style="text-align:center; font-size:12px; border-bottom:1px dashed #000; padding-bottom:5px;">
+                    單號：${data.id}<br>時間：${data.eta} 取餐
+                </div>
+                <div class="section">
+                    <div>類型：${data.type}</div>
+                    <div>姓名：${data.name}</div>
+                    <div>電話：${data.phone}</div>
+                    ${data.type==='外送' ? `<div>地址：${data.address}</div>` : ''}
+                    <div>備註：${data.note || '無'}</div>
+                </div>
+            `;
+
+            data.subOrders.forEach((sub, idx) => {
+                html += `
+                    <div class="section">
+                        <div style="font-weight:bold;">第 ${idx+1} 位 (${sub.spicy}/${sub.condiment})</div>
+                `;
+                sub.items.forEach(item => {
+                    html += `
+                        <div class="item">
+                            <span>${item.name} x${item.qty}</span>
+                        </div>
+                    `;
+                });
+                html += `</div>`;
+            });
+
+            html += `
+                <div style="display:flex; justify-content:space-between; font-size:16px; font-weight:bold; margin-top:10px;">
+                    <span>總金額</span>
+                    <span>$${data.total}</span>
+                </div>
+                <div style="text-align:center; font-size:12px; margin-top:10px;">-- 完 --</div>
+            `;
+
+            document.getElementById('receipt-area').innerHTML = html;
+            
+            // 觸發列印
+            setTimeout(() => {
+                window.print();
+            }, 500);
+        }
+        
+        function printSimple(row) {
+             // 備用列印 (如果 JSON 解析失敗)
+             document.getElementById('receipt-area').innerHTML = `
+                <div style="text-align:center; font-weight:bold;">新訂單 ${row[0]}</div>
+                <div>${row[7]}</div>
+                <div style="font-weight:bold; margin-top:10px;">總金額：${row[6]}</div>
+             `;
+             setTimeout(() => window.print(), 500);
+        }
+
+        function log(msg) {
+            let div = document.getElementById('log-area');
+            div.innerHTML = `[${new Date().toLocaleTimeString()}] ${msg}<br>` + div.innerHTML;
+        }
+    </script>
+</body>
+</html>
