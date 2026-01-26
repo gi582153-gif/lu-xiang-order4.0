@@ -5,39 +5,54 @@
     <title>滷香饌 - 自動接單後台</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
     <style>
-        body { font-family: monospace; background: #222; color: #0f0; padding: 20px; }
-        .status { font-size: 24px; margin-bottom: 20px; border-bottom: 1px solid #444; padding-bottom: 10px; }
-        .log { font-size: 14px; color: #ccc; }
-        button { font-size: 20px; padding: 10px 20px; cursor: pointer; background: #004400; color: white; border: none; }
+        body { font-family: 'Courier New', monospace; background: #1a1a1a; color: #00ff00; padding: 20px; }
+        .status-box { border: 1px solid #444; padding: 15px; margin-bottom: 20px; background: #000; }
+        .status-header { font-size: 20px; font-weight: bold; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 10px; display: flex; justify-content: space-between; }
+        .log-area { height: 300px; overflow-y: auto; font-size: 13px; color: #ccc; border-top: 1px dotted #333; padding-top: 10px; }
+        button { font-size: 18px; padding: 8px 20px; cursor: pointer; background: #006600; color: white; border: none; border-radius: 4px; }
+        button:hover { background: #008800; }
         
-        /* 列印樣式 (熱感應紙) */
+        /* 熱感應紙列印樣式 (58mm / 80mm) */
         @media print {
             @page { margin: 0; }
-            body { background: white; color: black; margin: 0; padding: 5px; width: 58mm; font-size: 14px; }
+            body { background: white; color: black; margin: 0; padding: 0; width: 100%; }
             .no-print { display: none !important; }
-            .receipt { display: block !important; }
+            .receipt { display: block !important; padding: 5px 10px; font-family: 'Noto Sans TC', sans-serif; font-size: 14px; }
+            .section { border-bottom: 1px dashed #000; padding-bottom: 5px; margin-bottom: 5px; }
+            .item { display: flex; justify-content: space-between; }
         }
-        .receipt { display: none; } /* 平常隱藏收據內容 */
-        .item { display: flex; justify-content: space-between; margin-bottom: 2px; }
-        .section { border-bottom: 1px dashed #000; padding-bottom: 5px; margin-bottom: 5px; }
+        .receipt { display: none; } 
     </style>
 </head>
 <body>
 
     <div class="no-print">
-        <div class="status">
-            🖨️ 自動接單監控中... <span id="last-update"></span><br>
-            目前最新單號：<span id="current-id" style="color: yellow;">讀取中...</span>
+        <div class="status-box">
+            <div class="status-header">
+                <span>🖨️ 接單系統監控</span>
+                <span id="connection-status" style="color:yellow;">等待啟動...</span>
+            </div>
+            <div>目前最新單號：<span id="current-id" style="font-weight:bold; color: white;">尚未讀取</span></div>
+            <div style="margin-top:5px; font-size:12px; color:#888;">最後檢查時間：<span id="last-update">--:--:--</span></div>
         </div>
-        <button onclick="startMonitor()">🔴 點此開始接收訂單</button>
-        <div class="log" id="log-area"></div>
+
+        <button onclick="startMonitor()" id="start-btn">▶️ 啟動自動接單</button>
+        <button onclick="testPrint()" style="background:#555; margin-left:10px;">🖨️ 測試列印</button>
+        
+        <h3 style="margin-top:20px; border-bottom:1px solid #333; padding-bottom:5px;">系統紀錄</h3>
+        <div class="log-area" id="log-area"></div>
     </div>
 
     <div id="receipt-area" class="receipt"></div>
 
     <script>
-        // 🔴 請填入你的 orders 分頁 CSV 網址
-        const ordersCsvUrl = "你的_orders_分頁_CSV_網址";
+        // ==========================================
+        // 🔴 請填入你的 [Orders] 分頁 CSV 網址
+        // ⚠️ 你的 orders 分頁 ID 應該跟 config 不一樣，請去確認一下！
+        // ==========================================
+        const ordersCsvUrl = "你的_Orders_分頁_CSV_網址"; 
+        // 👆 記得確認結尾要是 output=csv
+        // ==========================================
 
         let lastOrderId = localStorage.getItem('lastPrintedId') || "無";
         let isRunning = false;
@@ -48,110 +63,149 @@
         function startMonitor() {
             if (isRunning) return;
             isRunning = true;
-            document.querySelector('button').innerText = "🟢 監控中 (請勿關閉視窗)";
-            log("系統啟動，每 5 秒檢查一次...");
+            document.getElementById('start-btn').innerText = "🟢 監控中 (請保持視窗開啟)";
+            document.getElementById('start-btn').style.background = "#004400";
+            document.getElementById('start-btn').disabled = true;
             
-            // 立即檢查一次，然後設定定時器
-            checkOrders();
-            checkInterval = setInterval(checkOrders, 5000);
+            log("系統啟動，開始連接 Google 試算表...");
+            checkOrders(); // 立即執行一次
+            checkInterval = setInterval(checkOrders, 5000); // 每5秒檢查一次
         }
 
         function checkOrders() {
-            document.getElementById('last-update').innerText = new Date().toLocaleTimeString();
-            
-            Papa.parse(ordersCsvUrl, {
+            // 加入時間戳記防止快取
+            const cacheBusterUrl = ordersCsvUrl + (ordersCsvUrl.includes('?') ? '&' : '?') + "t=" + new Date().getTime();
+
+            Papa.parse(cacheBusterUrl, {
                 download: true,
-                header: false, // 因為標題行可能變動，我們直接用索引
+                header: false, // 不使用標題列模式，直接抓最後一行
                 complete: function(results) {
+                    document.getElementById('connection-status').innerText = "🟢 連線正常";
+                    document.getElementById('connection-status').style.color = "#00ff00";
+                    document.getElementById('last-update').innerText = new Date().toLocaleTimeString();
+
                     let rows = results.data;
-                    // 過濾掉空行和標題 (假設第一欄是單號)
-                    // 我們抓最後一筆資料
+                    // 過濾空行
+                    rows = rows.filter(r => r && r.length > 0 && r[0] !== '');
+                    
+                    if (rows.length === 0) {
+                        log("試算表是空的");
+                        return;
+                    }
+
+                    // 抓最後一筆訂單
                     let lastRow = rows[rows.length - 1];
-                    if (!lastRow || lastRow[0] === "單號") return; // 沒資料
+                    
+                    // 排除標題行 (如果只有標題)
+                    if (lastRow[0] === "單號") return;
 
-                    let serverId = lastRow[0]; // 單號在第1欄 (A欄)
-                    let jsonStr = lastRow[8]; // JSON詳細資料在第9欄 (I欄)，記得 GAS 那邊要存進去
+                    let serverId = lastRow[0]; // A欄是單號
+                    let jsonStr = lastRow[8]; // I欄是JSON (確認你的 GAS 有存入 JSON)
 
-                    // 如果發現新單號 (比現在記錄的單號大，或是不一樣)
-                    if (serverId !== lastOrderId && serverId.startsWith("#")) {
-                        log(`發現新訂單！單號：${serverId}`);
+                    if (serverId && serverId !== lastOrderId && serverId.startsWith("#")) {
+                        log(`🔔 發現新訂單！單號：${serverId}`);
+                        
+                        // 更新狀態
                         lastOrderId = serverId;
                         localStorage.setItem('lastPrintedId', serverId);
                         document.getElementById('current-id').innerText = serverId;
 
-                        // 執行列印
+                        // 嘗試解析並列印
                         try {
-                            let orderData = JSON.parse(jsonStr);
-                            printOrder(orderData);
+                            if(jsonStr) {
+                                let orderData = JSON.parse(jsonStr);
+                                printOrder(orderData);
+                            } else {
+                                log("⚠️ 訂單缺少 JSON 資料，僅列印簡易版");
+                                printSimple(lastRow);
+                            }
                         } catch (e) {
-                            log("解析訂單錯誤，嘗試列印簡易版...");
-                            // 如果 JSON 解析失敗，至少印出 Excel 裡的文字
-                            printSimple(lastRow);
+                            log("❌ JSON 解析失敗：" + e.message);
+                            printSimple(lastRow); // 失敗就印簡易版
                         }
                     }
+                },
+                error: function(err) {
+                    document.getElementById('connection-status').innerText = "🔴 連線失敗";
+                    document.getElementById('connection-status').style.color = "red";
+                    log("❌ 讀取錯誤 (請檢查網址格式): " + err.message);
                 }
             });
         }
 
         function printOrder(data) {
+            log(`🖨️ 正在列印單號 ${data.id}...`);
             let html = `
-                <div style="text-align:center; font-size:18px; font-weight:bold;">滷香饌</div>
+                <div style="text-align:center; font-size:20px; font-weight:bold; margin-bottom:5px;">滷香饌</div>
                 <div style="text-align:center; font-size:12px; border-bottom:1px dashed #000; padding-bottom:5px;">
-                    單號：${data.id}<br>時間：${data.eta} 取餐
+                    單號：<span style="font-size:16px; font-weight:bold;">${data.id}</span><br>
+                    ${data.eta} 取餐
                 </div>
-                <div class="section">
-                    <div>類型：${data.type}</div>
-                    <div>姓名：${data.name}</div>
-                    <div>電話：${data.phone}</div>
-                    ${data.type==='外送' ? `<div>地址：${data.address}</div>` : ''}
+                <div class="section" style="margin-top:5px;">
+                    <div style="font-size:16px; font-weight:bold;">${data.type}</div>
+                    <div>${data.name} / ${data.phone}</div>
+                    ${data.type==='外送' ? `<div>📍 ${data.address}</div>` : ''}
                     <div>備註：${data.note || '無'}</div>
                 </div>
             `;
-
-            data.subOrders.forEach((sub, idx) => {
-                html += `
-                    <div class="section">
-                        <div style="font-weight:bold;">第 ${idx+1} 位 (${sub.spicy}/${sub.condiment})</div>
-                `;
-                sub.items.forEach(item => {
+            
+            if(data.subOrders) {
+                data.subOrders.forEach((sub, idx) => {
                     html += `
-                        <div class="item">
-                            <span>${item.name} x${item.qty}</span>
-                        </div>
+                        <div class="section">
+                            <div style="font-weight:bold;">👤 第 ${idx+1} 位 (${sub.spicy}/${sub.condiment})</div>
                     `;
+                    sub.items.forEach(item => {
+                        html += `
+                            <div class="item">
+                                <span>${item.name} x${item.qty}</span>
+                            </div>
+                        `;
+                    });
+                    html += `</div>`;
                 });
-                html += `</div>`;
-            });
+            } else {
+                 // 相容舊資料
+                 html += `<div class="section"><div>(無詳細分單資料)</div></div>`;
+            }
 
             html += `
-                <div style="display:flex; justify-content:space-between; font-size:16px; font-weight:bold; margin-top:10px;">
+                <div style="display:flex; justify-content:space-between; font-size:18px; font-weight:bold; margin-top:10px;">
                     <span>總金額</span>
                     <span>$${data.total}</span>
                 </div>
-                <div style="text-align:center; font-size:12px; margin-top:10px;">-- 完 --</div>
+                <div style="text-align:center; font-size:12px; margin-top:10px;">-- 謝謝光臨 --</div>
             `;
 
             document.getElementById('receipt-area').innerHTML = html;
-            
-            // 觸發列印
-            setTimeout(() => {
-                window.print();
-            }, 500);
+            setTimeout(() => { window.print(); }, 500);
         }
-        
+
         function printSimple(row) {
-             // 備用列印 (如果 JSON 解析失敗)
+             // 備用列印方案
              document.getElementById('receipt-area').innerHTML = `
-                <div style="text-align:center; font-weight:bold;">新訂單 ${row[0]}</div>
-                <div>${row[7]}</div>
-                <div style="font-weight:bold; margin-top:10px;">總金額：${row[6]}</div>
+                <div style="text-align:center; font-weight:bold; font-size:18px;">滷香饌 (簡易單)</div>
+                <div style="text-align:center; border-bottom:1px solid #000;">單號：${row[0]}</div>
+                <div style="margin-top:10px;">
+                    ${row[7] ? row[7].replace(/\n/g, '<br>') : '內容讀取失敗'}
+                </div>
+                <div style="font-weight:bold; margin-top:10px; font-size:16px;">總金額：${row[6]}</div>
              `;
              setTimeout(() => window.print(), 500);
         }
 
+        function testPrint() {
+            printOrder({
+                id: "#TEST", type: "測試自取", name: "測試員", phone: "0900000000",
+                eta: "12:00", total: 100, note: "這是測試列印",
+                subOrders: [{spicy:"小辣", condiment:"酸菜", items:[{name:"鴨血", qty:1}, {name:"豆腐", qty:2}]}]
+            });
+        }
+
         function log(msg) {
             let div = document.getElementById('log-area');
-            div.innerHTML = `[${new Date().toLocaleTimeString()}] ${msg}<br>` + div.innerHTML;
+            let time = new Date().toLocaleTimeString();
+            div.innerHTML = `<div><span style="color:#666;">[${time}]</span> ${msg}</div>` + div.innerHTML;
         }
     </script>
 </body>
