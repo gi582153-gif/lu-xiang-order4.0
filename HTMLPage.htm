@@ -1,0 +1,420 @@
+﻿<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>滷香饌 - 團購分單系統</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            padding-bottom: 120px;
+        }
+
+        .category-header {
+            position: sticky;
+            top: 0;
+            background: white;
+            z-index: 10;
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #92400e;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        #closed-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.85);
+            z-index: 9999;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+
+    <div id="closed-overlay" class="hidden">
+        <div class="text-4xl mb-4">😴</div>
+        <h2 class="text-3xl font-bold mb-2">本店休息中</h2>
+        <p class="text-gray-300">請於營業時間再來光臨</p>
+    </div>
+
+    <header class="bg-amber-800 text-white p-4 shadow-md sticky top-0 z-20">
+        <div class="flex justify-between items-center">
+            <div>
+                <h1 class="text-2xl font-bold">滷香饌</h1>
+                <p class="text-xs opacity-90">📍 團購點餐模式</p>
+            </div>
+            <div class="text-right">
+                <div class="bg-amber-900 px-2 py-1 rounded text-xs">
+                    ⏳ 等待：<span id="wait-time-display">--</span> 分
+                </div>
+            </div>
+        </div>
+        <div class="mt-2 bg-amber-700 p-2 rounded text-sm flex justify-between items-center">
+            <span>正在點：<span id="current-order-num" class="font-bold text-yellow-300">第 1 位</span></span>
+            <button onclick="finishCurrentPerson()" class="bg-yellow-500 hover:bg-yellow-600 text-amber-900 px-3 py-1 rounded text-xs font-bold shadow">
+                + 加下一位
+            </button>
+        </div>
+    </header>
+
+    <div id="loading" class="text-center py-10">
+        <div class="loader"></div>
+        <p class="text-gray-500">正在讀取菜單...</p>
+    </div>
+
+    <div id="menu-container" class="p-4 max-w-md mx-auto hidden"></div>
+
+    <div class="fixed bottom-0 left-0 w-full bg-white shadow-[0_-4px_15px_rgba(0,0,0,0.1)] p-4 border-t border-gray-200 z-30">
+        <div class="max-w-md mx-auto flex justify-between items-center">
+            <div>
+                <p class="text-xs text-gray-500">團購總計 (<span id="total-person-count">1</span>人)</p>
+                <p class="text-2xl font-bold text-amber-600" id="total-price">NT$0</p>
+            </div>
+            <button onclick="openOrderModal()" class="bg-amber-800 hover:bg-amber-900 text-white font-bold py-3 px-6 rounded-full shadow-lg flex items-center">
+                🛒 結帳
+            </button>
+        </div>
+    </div>
+
+    <div id="order-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-end sm:items-center justify-center z-50">
+        <div class="bg-white w-full max-w-md h-[90vh] sm:h-auto sm:rounded-xl rounded-t-2xl shadow-2xl flex flex-col relative">
+            <div class="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-2xl">
+                <h2 class="text-lg font-bold text-gray-800">確認訂單內容</h2>
+                <button onclick="closeModal()" class="text-gray-400 text-2xl">&times;</button>
+            </div>
+
+            <div class="overflow-y-auto p-4 flex-1 space-y-6">
+                <div class="bg-amber-50 p-1 rounded-lg flex text-sm font-bold">
+                    <button onclick="setOrderType('pickup')" id="btn-pickup" class="flex-1 py-2 rounded-md shadow bg-white text-amber-800">🥡 自取</button>
+                    <button onclick="setOrderType('delivery')" id="btn-delivery" class="flex-1 py-2 rounded-md text-gray-500">🛵 外送 (滿$300)</button>
+                </div>
+
+                <div class="space-y-3">
+                    <div class="flex space-x-2">
+                        <input type="text" id="cust-name" placeholder="訂購人稱呼 *" class="w-1/2 p-2 border rounded">
+                        <input type="tel" id="cust-phone" placeholder="聯絡電話 *" class="w-1/2 p-2 border rounded">
+                    </div>
+                    <div id="address-field" class="hidden">
+                        <input type="text" id="cust-address" placeholder="外送地址 *" class="w-full p-2 border rounded">
+                    </div>
+                </div>
+
+                <div class="border rounded-lg bg-gray-50 overflow-hidden">
+                    <div class="bg-gray-200 px-3 py-2 text-xs text-gray-600 font-bold">團購明細</div>
+                    <div id="order-list" class="text-sm p-3 space-y-3 max-h-60 overflow-y-auto"></div>
+                </div>
+
+                <textarea id="cust-note" placeholder="整單備註..." class="w-full p-2 border rounded text-sm h-16"></textarea>
+
+                <div class="flex justify-between items-end border-t pt-4">
+                    <span class="text-gray-600">總金額</span>
+                    <span class="text-3xl font-bold text-amber-700" id="modal-total">NT$0</span>
+                </div>
+            </div>
+
+            <div class="p-4 border-t bg-white">
+                <button id="submit-btn" onclick="submitOrder()" class="w-full bg-green-600 text-white py-3 rounded-xl font-bold text-lg shadow-lg">確認送出</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="options-modal" class="fixed inset-0 bg-black bg-opacity-60 hidden flex items-center justify-center z-[60]">
+        <div class="bg-white w-80 rounded-lg p-5 shadow-2xl">
+            <h3 class="font-bold text-lg mb-4 text-center border-b pb-2">設定口味 (<span id="opt-person-num"></span>)</h3>
+
+            <p class="font-bold text-amber-800 mb-2 text-sm">🌶️ 辣度</p>
+            <div class="grid grid-cols-4 gap-2 text-sm mb-4">
+                <label class="cursor-pointer border rounded p-1 text-center hover:bg-amber-50"><input type="radio" name="temp-spicy" value="不辣" checked><div>不辣</div></label>
+                <label class="cursor-pointer border rounded p-1 text-center hover:bg-amber-50"><input type="radio" name="temp-spicy" value="小辣"><div>小辣</div></label>
+                <label class="cursor-pointer border rounded p-1 text-center hover:bg-amber-50"><input type="radio" name="temp-spicy" value="中辣"><div>中辣</div></label>
+                <label class="cursor-pointer border rounded p-1 text-center hover:bg-amber-50"><input type="radio" name="temp-spicy" value="大辣"><div>大辣</div></label>
+            </div>
+
+            <p class="font-bold text-amber-800 mb-2 text-sm">🧄 佐料 (預設全加)</p>
+            <div class="grid grid-cols-2 gap-2 text-sm mb-4">
+                <label class="flex items-center space-x-1"><input type="checkbox" name="temp-condiment" value="酸菜" checked><span>酸菜</span></label>
+                <label class="flex items-center space-x-1"><input type="checkbox" name="temp-condiment" value="蔥花" checked><span>蔥花</span></label>
+                <label class="flex items-center space-x-1"><input type="checkbox" name="temp-condiment" value="蒜泥" checked><span>蒜泥</span></label>
+                <label class="flex items-center space-x-1"><input type="checkbox" name="temp-condiment" value="胡椒" checked><span>胡椒</span></label>
+            </div>
+
+            <button onclick="confirmPersonOptions()" class="w-full bg-amber-800 text-white py-2 rounded font-bold">確認加入</button>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 🔴 請修改這三個網址 (保留你原本的設定)
+        // ==========================================
+        const menuCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSfQ9x4tLrKSwm1WNhswVJyKYhYr3ephHrEeja7STTtSv6G_MUjfJa9MN8X6DuSgDYjtYmNX9sAqEsM/pub?output=csv";
+        const configCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSfQ9x4tLrKSwm1WNhswVJyKYhYr3ephHrEeja7STTtSv6G_MUjfJa9MN8X6DuSgDYjtYmNX9sAqEsM/pubhtml?gid=1561447100&single=true";
+        const scriptUrl = "https://script.google.com/macros/s/AKfycbx4oG68MnkQ_PKZtfnRTt19bhfO5QU_onrNHnEG8Cz0BPa98dfFjuRUJwusMPqOpFQ2pg/exec";
+        // ==========================================
+
+        let menuData = [];
+        let currentCart = {}; // 當前這一位的購物車
+        let confirmedOrders = []; // 已確認的其他人訂單 [ {items:[], spicy:'小辣', condiment:'酸菜', subtotal: 100} ]
+        let config = { status: 'OPEN', base_time: 20 };
+        let currentOrderType = 'pickup';
+
+        function init() {
+        Papa.parse(configCsvUrl, { download: true, header: true, complete: res => {
+        if(res.data.length > 0) res.data.forEach(r => { if(r.key) config[r.key] = r.value; });
+        if(config.status.toUpperCase() === 'CLOSE') document.getElementById('closed-overlay').classList.remove('hidden');
+        }});
+        Papa.parse(menuCsvUrl, { download: true, header: true, complete: res => processMenu(res.data) });
+        updateWaitTimeDisplay();
+        }
+
+        function processMenu(rawData) {
+        let categories = {};
+        rawData.forEach((item, index) => {
+        if(!item.name) return;
+        if (!categories[item.category]) categories[item.category] = [];
+        categories[item.category].push({ id: index, name: item.name, price: Number(item.price), unit: item.unit, soldOut: item.on_sale && item.on_sale.toUpperCase() !== 'TRUE' });
+        });
+        menuData = Object.keys(categories).map(key => ({ category: key, items: categories[key] }));
+        document.getElementById('loading').classList.add('hidden');
+        document.getElementById('menu-container').classList.remove('hidden');
+        renderMenu();
+        }
+
+        function renderMenu() {
+        const container = document.getElementById('menu-container');
+        let html = '';
+        menuData.forEach(cat => {
+        html += `<h3 class="category-header text-lg font-bold text-amber-800 mt-2 mb-2">${cat.category}</h3><div class="space-y-3">`;
+        cat.items.forEach(item => {
+        const isSoldOut = item.soldOut;
+        html += `
+        <div class="flex justify-between items-center ${isSoldOut ? "bg-gray-100 opacity-60" : "bg-white"} p-3 rounded-lg shadow-sm border border-gray-100">
+        <div><h4 class="font-medium text-gray-800">${item.name}</h4><p class="text-gray-500 text-sm">$${item.price}</p></div>
+        <div class="items-center space-x-3 ${isSoldOut ? "hidden" : "flex"}">
+        <button onclick="updateCart(${item.id}, -1)" class="w-8 h-8 rounded-full bg-gray-200 text-gray-600 font-bold active:bg-gray-300">-</button>
+        <span id="qty-${item.id}" class="w-4 text-center font-medium">0</span>
+        <button onclick="updateCart(${item.id}, 1)" class="w-8 h-8 rounded-full bg-amber-100 text-amber-800 font-bold active:bg-amber-200">+</button>
+        </div>
+        </div>`;
+        });
+        html += `</div>`;
+        });
+        container.innerHTML = html;
+        }
+
+        function updateCart(itemId, change) {
+        if (!currentCart[itemId]) currentCart[itemId] = 0;
+        currentCart[itemId] += change;
+        if (currentCart[itemId] < 0) currentCart[itemId] = 0;
+        document.getElementById(`qty-${itemId}`).innerText = currentCart[itemId];
+        calculateTotal();
+        }
+
+        // 按下「加下一位」
+        function finishCurrentPerson() {
+        // 檢查當前是否有商品
+        let hasItem = false;
+        Object.values(currentCart).forEach(q => { if(q > 0) hasItem = true; });
+        if(!hasItem) { Swal.fire('空的', '請先點餐再加下一位', 'warning'); return; }
+
+        // 跳出選口味視窗
+        document.getElementById('opt-person-num').innerText = `第 ${confirmedOrders.length + 1} 位`;
+        document.getElementById('options-modal').classList.remove('hidden');
+        }
+
+        // 確認口味後，把當前這個人存入暫存區
+        function confirmPersonOptions() {
+        // 收集口味
+        const spicy = document.querySelector('input[name="temp-spicy"]:checked').value;
+        const condiments = Array.from(document.querySelectorAll('input[name="temp-condiment"]:checked')).map(e=>e.value).join('、') || "都不加";
+
+        // 建立訂單物件
+        let personOrder = {
+        id: confirmedOrders.length + 1,
+        items: [],
+        total: 0,
+        spicy: spicy,
+        condiment: condiments
+        };
+
+        // 抓取商品
+        menuData.forEach(cat => cat.items.forEach(item => {
+        if(currentCart[item.id] > 0) {
+        personOrder.items.push({name: item.name, qty: currentCart[item.id], price: item.price});
+        personOrder.total += item.price * currentCart[item.id];
+        }
+        }));
+
+        // 存入已確認清單
+        confirmedOrders.push(personOrder);
+
+        // 清空當前購物車 UI
+        currentCart = {};
+        document.querySelectorAll('[id^="qty-"]').forEach(el => el.innerText = '0');
+        document.getElementById('options-modal').classList.add('hidden');
+
+        // 更新介面
+        document.getElementById('current-order-num').innerText = `第 ${confirmedOrders.length + 1} 位`;
+        calculateTotal();
+
+        Swal.fire({
+        icon: 'success',
+        title: '已暫存',
+        text: '請繼續點下一位的餐點',
+        timer: 1000,
+        showConfirmButton: false
+        });
+        }
+
+        function calculateTotal() {
+        let total = 0;
+
+        // 1. 加上已確認的人
+        confirmedOrders.forEach(o => total += o.total);
+
+        // 2. 加上目前正在點的人
+        menuData.forEach(cat => cat.items.forEach(item => {
+        if(currentCart[item.id] > 0) total += item.price * currentCart[item.id];
+        }));
+
+        document.getElementById('total-price').innerText = `NT$${total}`;
+        document.getElementById('total-person-count').innerText = confirmedOrders.length + 1; // 包含現在正在點的
+        return total;
+        }
+
+        function openOrderModal() {
+        // 如果當前這一位有點東西，先強制幫他按「加下一位」流程，把他加入結帳清單
+        let hasCurrentItem = false;
+        Object.values(currentCart).forEach(q => { if(q > 0) hasCurrentItem = true; });
+
+        if(hasCurrentItem) {
+        // 自動幫最後這位選預設口味 (為了流暢度，最後一位如果不按加下一位，直接按結帳，會跳出選口味)
+        document.getElementById('opt-person-num').innerText = `第 ${confirmedOrders.length + 1} 位 (最後一位)`;
+        document.getElementById('options-modal').classList.remove('hidden');
+        // 修改確認按鈕行為：確認後直接去結帳
+        document.querySelector('#options-modal button').onclick = function() {
+        confirmPersonOptions();
+        // 還原按鈕行為
+        document.querySelector('#options-modal button').onclick = confirmPersonOptions;
+        showFinalModal(); // 顯示結帳單
+        };
+        return;
+        } else if (confirmedOrders.length === 0) {
+        Swal.fire('購物車空的', '請先點餐', 'warning');
+        return;
+        }
+
+        showFinalModal();
+        }
+
+        function showFinalModal() {
+        let listHtml = '';
+        let finalTotal = 0;
+
+        confirmedOrders.forEach((order, idx) => {
+        finalTotal += order.total;
+        listHtml += `
+        <div class="border-b border-dashed border-gray-300 pb-2 mb-2 last:border-0">
+        <div class="flex justify-between font-bold text-amber-800 mb-1">
+        <span>第 ${idx+1} 單</span>
+        <span class="text-xs bg-gray-200 px-2 rounded-full text-gray-600 self-center">${order.spicy} / ${order.condiment}</span>
+        </div>
+        ${order.items.map(i => `
+        <div class="flex justify-between pl-2 text-gray-600">
+        <span>${i.name} x${i.qty}</span>
+        <span>$${i.price * i.qty}</span>
+        </div>
+        `).join('')}
+        </div>
+        `;
+        });
+
+        document.getElementById('order-list').innerHTML = listHtml;
+        document.getElementById('modal-total').innerText = `NT$${finalTotal}`;
+        document.getElementById('order-modal').classList.remove('hidden');
+        }
+
+        function closeModal() { document.getElementById('order-modal').classList.add('hidden'); }
+        function setOrderType(type) { /* ...同前... */ currentOrderType = type; updateTypeUI(); }
+        function updateTypeUI() {
+        const isPickup = currentOrderType === 'pickup';
+        document.getElementById('btn-pickup').className = `flex-1 py-2 rounded-md transition ${isPickup ? "shadow bg-white text-amber-800 border border-amber-200" : "text-gray-500 hover:bg-gray-100"}`;
+        document.getElementById('btn-delivery').className = `flex-1 py-2 rounded-md transition ${!isPickup ? "shadow bg-white text-amber-800 border border-amber-200" : "text-gray-500 hover:bg-gray-100"}`;
+        document.getElementById('address-field').className = isPickup ? "hidden" : "";
+        }
+        function updateWaitTimeDisplay() { /* ...同前... */ }
+
+        function submitOrder() {
+        const total = calculateTotal();
+        const name = document.getElementById('cust-name').value.trim();
+        const phone = document.getElementById('cust-phone').value.trim();
+        const address = document.getElementById('cust-address').value.trim();
+        const note = document.getElementById('cust-note').value;
+
+        if(!name || !phone) { Swal.fire('資料不全', '請填寫姓名與電話', 'error'); return; }
+        if(currentOrderType === 'delivery') {
+        if(total < 300) { Swal.fire('未達門檻', '外送需滿 $300', 'warning'); return; }
+        if(!address) { Swal.fire('缺少地址', '外送請填寫詳細地址', 'error'); return; }
+        }
+
+        let dailyCount = parseInt(localStorage.getItem('dailyCount') || 0) + 1;
+        let orderNumber = String(dailyCount).padStart(3, '0');
+        let waitMin = config.base_time + (dailyCount % 5 * 5);
+        let eta = new Date(new Date().getTime() + waitMin*60000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+
+        let orderData = {
+        id: orderNumber,
+        type: currentOrderType === 'pickup' ? "自取" : "外送",
+        name: name, phone: phone, address: address, note: note,
+        total: total, waitTime: waitMin, eta: eta,
+        subOrders: confirmedOrders // 傳送分單資料
+        };
+
+        const btn = document.getElementById('submit-btn');
+        btn.innerText = "傳送中..."; btn.disabled = true;
+
+        fetch(scriptUrl, {
+        method: "POST", mode: "no-cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderData: orderData })
+        }).then(() => {
+        localStorage.setItem('dailyCount', dailyCount);
+        closeModal();
+        Swal.fire({
+        title: '下單成功！', icon: 'success',
+        html: `單號：<b>${orderNumber}</b><br>預計：${eta}<br>總額：$${total}`,
+        confirmButtonText: '好的'
+        }).then(() => location.reload());
+        }).catch(() => { Swal.fire('失敗', '網路錯誤', 'error'); btn.innerText = "確認送出"; btn.disabled = false; });
+        }
+
+        updateWaitTimeDisplay();
+    </script>
+</body>
+</html>
