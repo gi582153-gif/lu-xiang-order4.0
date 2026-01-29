@@ -2,91 +2,159 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>接單後台</title>
+    <title>滷香饌 - 接單後台</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
     <style>
-        body { background: #222; color: #0f0; font-family: monospace; padding: 20px; }
-        .box { border: 1px solid #444; padding: 20px; margin-bottom: 20px; }
-        @media print { .no-print { display: none; } body { background: white; color: black; } }
+        body { font-family: monospace; background: #222; color: #0f0; padding: 20px; }
+        .status-box { border: 1px solid #444; padding: 15px; margin-bottom: 20px; background: #000; }
+        .log-area { height: 300px; overflow-y: auto; font-size: 13px; color: #ccc; border-top: 1px dotted #333; padding-top: 10px; }
+        button { font-size: 18px; padding: 8px 20px; cursor: pointer; background: #006600; color: white; border: none; }
+        
+        @media print {
+            @page { margin: 0; }
+            body { background: white; color: black; margin: 0; padding: 0; width: 100%; }
+            .no-print { display: none !important; }
+            .receipt { display: block !important; padding: 5px 10px; font-family: 'Noto Sans TC', sans-serif; font-size: 14px; }
+            .big-text { font-size: 24px; font-weight: 900; }
+            .med-text { font-size: 18px; font-weight: bold; }
+            .box-border { border: 2px solid #000; padding: 5px; text-align: center; margin-bottom: 10px; }
+            .section { border-bottom: 2px dashed #000; padding-bottom: 5px; margin-bottom: 5px; }
+            .item { display: flex; justify-content: space-between; font-size: 16px; margin-bottom: 4px; }
+        }
+        .receipt { display: none; } 
     </style>
 </head>
 <body>
+
     <div class="no-print">
-        <div class="box">
-            <h2>🖨️ 自動接單中... <span id="status" style="color:yellow">連線中</span></h2>
-            <p>最新單號：<span id="last-id" style="color:white; font-weight:bold">無</span></p>
+        <div class="status-box">
+            <h2>🖨️ 接單監控系統 (Flagship版)</h2>
+            <div id="connection-status" style="color:yellow;">等待啟動...</div>
+            <div>最新單號：<span id="current-id" style="font-weight:bold; color: white;">--</span></div>
         </div>
-        <button onclick="init()" style="padding:10px 20px; font-size:16px; cursor:pointer;">▶️ 點此啟動監控</button>
+        <button onclick="startMonitor()" id="start-btn">▶️ 啟動接單</button>
+        <button onclick="testPrint()" style="background:#555; margin-left:10px;">🖨️ 測試列印</button>
+        <div class="log-area" id="log-area"></div>
     </div>
 
-    <div id="print-area"></div>
+    <div id="receipt-area" class="receipt"></div>
 
     <script>
         // ==========================================
-        // 🔴 請填入你的筆記本網址
+        // 🔴 請填入你的 ORDERS CSV 網址
         // ==========================================
-        const URL_ORDERS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSfQ9x4tLrKSwm1WNhswVJyKYhYr3ephHrEeja7STTtSv6G_MUjfJa9MN8X6DuSgDYjtYmNX9sAqEsM/pub?gid=1858812803&single=true&output=csv
-"; 
+        const ordersCsvUrl = "你的_ORDERS_CSV網址"; 
         // ==========================================
 
-        let lastId = localStorage.getItem('lastId');
-        document.getElementById('last-id').innerText = lastId || '無';
+        let lastOrderId = localStorage.getItem('lastPrintedId') || "無";
+        let isRunning = false;
 
-        function init() {
-            document.getElementById('status').innerText = "🟢 監控中";
-            setInterval(check, 5000); // 每5秒檢查一次
-            check();
+        document.getElementById('current-id').innerText = lastOrderId;
+
+        function startMonitor() {
+            if (isRunning) return;
+            isRunning = true;
+            document.getElementById('start-btn').innerText = "🟢 監控中";
+            document.getElementById('start-btn').style.background = "#004400";
+            log("系統啟動，開始連接...");
+            checkOrders();
+            setInterval(checkOrders, 5000);
         }
 
-        function check() {
-            // 加時間戳記防止快取
-            Papa.parse(URL_ORDERS + "&t=" + Date.now(), {
+        function checkOrders() {
+            const cacheBusterUrl = ordersCsvUrl + (ordersCsvUrl.includes('?') ? '&' : '?') + "t=" + new Date().getTime();
+            Papa.parse(cacheBusterUrl, {
                 download: true, header: false,
-                complete: function(res) {
-                    let rows = res.data.filter(r => r[0] && r[0] !== '單號');
-                    if(rows.length === 0) return;
-                    
-                    let newOrder = rows[rows.length - 1]; // 抓最後一筆
-                    let newId = newOrder[0];
-                    let jsonStr = newOrder[8]; // I欄的JSON
+                complete: function(results) {
+                    document.getElementById('connection-status').innerText = "🟢 連線正常";
+                    let rows = results.data.filter(r => r && r.length > 0 && r[0] !== '' && r[0] !== '單號');
+                    if (rows.length === 0) return;
 
-                    if(newId !== lastId) {
-                        lastId = newId;
-                        localStorage.setItem('lastId', newId);
-                        document.getElementById('last-id').innerText = newId;
-                        
+                    let lastRow = rows[rows.length - 1];
+                    let serverId = lastRow[0]; 
+                    let jsonStr = lastRow[8]; 
+
+                    if (serverId && serverId !== lastOrderId && serverId.startsWith("#")) {
+                        log(`🔔 新訂單：${serverId}`);
+                        lastOrderId = serverId;
+                        localStorage.setItem('lastPrintedId', serverId);
+                        document.getElementById('current-id').innerText = serverId;
                         try {
-                            print(JSON.parse(jsonStr));
-                        } catch(e) {
-                            console.log("JSON解析失敗，略過列印");
-                        }
+                            if(jsonStr) printOrder(JSON.parse(jsonStr));
+                            else printSimple(lastRow);
+                        } catch (e) { printSimple(lastRow); }
                     }
                 }
             });
         }
 
-        function print(data) {
-            let html = `<div style="text-align:center; font-size:24px; font-weight:bold; margin-bottom:10px;">滷香饌</div>
-                        <div style="text-align:center; border-bottom:1px dashed #000; padding-bottom:5px;">單號：${data.id}<br>${data.eta} 取餐</div>
-                        <div style="margin-top:5px; font-size:18px;">${data.type} / ${data.name}</div>
-                        <div>電話：${data.phone}</div>
-                        ${data.type==='外送'?`<div>地址：${data.address}</div>`:''}
-                        <div>備註：${data.note}</div>
-                        <hr style="border-top: 1px dashed #000;">`;
+        function printOrder(data) {
+            log(`🖨️ 列印 ${data.id}...`);
+            let typeLabel = data.type === '外送' ? '🛵 外送' : '🥡 自取';
+            
+            let html = `
+                <div style="text-align:center; margin-bottom:10px;">
+                    <div class="big-text">滷香饌</div>
+                    <div style="font-size:12px;">${new Date().toLocaleString()}</div>
+                </div>
+                
+                <div class="box-border">
+                    <div class="big-text">${data.id.replace('#','')}</div>
+                    <div class="med-text">${typeLabel}</div>
+                    <div style="font-size:20px; font-weight:bold;">${data.eta} 取</div>
+                </div>
+
+                <div class="section">
+                    <div style="font-size:16px; font-weight:bold;">${data.name}</div>
+                    <div>${data.phone}</div>
+                    ${data.type==='外送' ? `<div style="font-weight:bold;">📍 ${data.address}</div>` : ''}
+                    <div style="margin-top:5px; border:1px solid #000; padding:2px;">備註：${data.note || '無'}</div>
+                </div>
+            `;
             
             if(data.subOrders) {
-                data.subOrders.forEach((sub, i) => {
-                    html += `<div style="font-weight:bold; margin-top:5px;">👤 第 ${i+1} 位 (${sub.spicy}/${sub.condiment})</div>`;
-                    sub.items.forEach(item => html += `<div style="display:flex; justify-content:space-between;"><span>${item.name} x${item.qty}</span></div>`);
+                data.subOrders.forEach((sub, idx) => {
+                    html += `<div class="section"><div style="font-weight:bold; background:#eee;">👤 第 ${idx+1} 位 (${sub.spicy}/${sub.condiment})</div>`;
+                    sub.items.forEach(item => {
+                        html += `<div class="item"><span>${item.name}</span><span>x${item.qty}</span></div>`;
+                    });
+                    html += `</div>`;
                 });
             }
-            
-            html += `<hr style="border-top: 1px dashed #000;">
-                     <div style="display:flex; justify-content:space-between; font-size:20px; font-weight:bold;"><span>總金額</span><span>$${data.total}</span></div>`;
-            
-            document.getElementById('print-area').innerHTML = html;
-            setTimeout(() => window.print(), 500);
+
+            html += `
+                <div style="display:flex; justify-content:space-between; font-size:24px; font-weight:bold; margin-top:10px;">
+                    <span>總金額</span>
+                    <span>$${data.total}</span>
+                </div>
+                <div style="text-align:center; margin-top:15px; font-size:12px;">
+                    * |||| ||||| |||| ||||| *
+                </div>
+            `;
+
+            document.getElementById('receipt-area').innerHTML = html;
+            setTimeout(() => { window.print(); }, 500);
         }
+
+        function printSimple(row) {
+             // 簡易版列印
+             document.getElementById('receipt-area').innerHTML = `
+                <div style="text-align:center; font-weight:bold; font-size:18px;">滷香饌 (簡易單)</div>
+                <div style="text-align:center; font-size:24px; border:1px solid #000;">${row[0]}</div>
+                <div style="margin-top:10px;">${row[7] ? row[7].replace(/\n/g, '<br>') : '內容讀取失敗'}</div>
+                <div style="font-weight:bold; margin-top:10px; font-size:20px;">總金額：${row[6]}</div>
+             `;
+             setTimeout(() => window.print(), 500);
+        }
+
+        function testPrint() {
+            printOrder({
+                id: "#001", type: "外送", name: "測試員", phone: "0912345678", address: "測試路1號",
+                eta: "18:30", total: 180, note: "不要香菜",
+                subOrders: [{spicy:"小辣", condiment:"酸菜", items:[{name:"大腸", qty:2}, {name:"米血", qty:1}]}]
+            });
+        }
+        function log(msg) { document.getElementById('log-area').innerHTML = `<div>${msg}</div>` + document.getElementById('log-area').innerHTML; }
     </script>
 </body>
 </html>
