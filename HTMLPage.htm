@@ -1,0 +1,156 @@
+﻿<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>滷香饌</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+</head>
+<body class="bg-gray-50 pb-32">
+
+    <header class="bg-amber-800 text-white p-4 sticky top-0 z-20 shadow">
+        <div class="flex justify-between items-center">
+            <h1 class="text-2xl font-bold">滷香饌</h1>
+            <div class="bg-amber-900 px-2 py-1 rounded text-xs">⏳ 等待：<span id="wait-time">20</span> 分</div>
+        </div>
+        <div class="mt-2 bg-amber-700 p-2 rounded flex justify-between items-center">
+            <span id="current-person">正在點：第 1 位</span>
+            <button onclick="nextPerson()" class="bg-yellow-500 text-amber-900 px-3 py-1 rounded font-bold text-sm">+ 加下一位</button>
+        </div>
+    </header>
+
+    <div id="menu-area" class="p-4 max-w-md mx-auto">讀取中...</div>
+
+    <div class="fixed bottom-0 left-0 w-full bg-white p-4 border-t z-30 flex justify-between items-center shadow-lg">
+        <div><p class="text-xs text-gray-500">總計</p><p class="text-2xl font-bold text-amber-600" id="total-price">$0</p></div>
+        <button onclick="checkOut()" class="bg-amber-800 text-white px-8 py-3 rounded-full font-bold shadow-lg">去結帳</button>
+    </div>
+
+    <script>
+        // ==========================================
+        // 🟢 網址修正完畢 (我幫你把多餘的換行刪掉了)
+        // ==========================================
+        const URL_MENU = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSfQ9x4tLrKSwm1WNhswVJyKYhYr3ephHrEeja7STTtSv6G_MUjfJa9MN8X6DuSgDYjtYmNX9sAqEsM/pub?gid=127414704&single=true&output=csv";
+
+        const URL_CONFIG = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSfQ9x4tLrKSwm1WNhswVJyKYhYr3ephHrEeja7STTtSv6G_MUjfJa9MN8X6DuSgDYjtYmNX9sAqEsM/pub?gid=1561447100&single=true&output=csv";
+
+        const URL_SCRIPT = "https://script.google.com/macros/s/AKfycbyjB08Evkc1T5R7rNTbcmWYzhkrdoHdpx5A8quRORyJcodTd9Ag6qyCkGpvRZ28bIGiMA/exec";
+        // ==========================================
+
+        let menu=[], cart={}, orders=[], config={status:'OPEN', base_time:20};
+
+        // 啟動 (移除休息檢查，只讀取時間)
+        Papa.parse(URL_CONFIG, {
+        download: true,
+        header: true,
+        complete: res => {
+        res.data.forEach(r => { if(r.key) config[r.key] = r.value; });
+        // ❌ 刪除原本檢查 CLOSE 的程式碼
+        document.getElementById('wait-time').innerText = config.base_time;
+        }
+        });
+
+        Papa.parse(URL_MENU, {
+        download: true,
+        header: true,
+        complete: res => {
+        let cats={};
+        res.data.forEach((d,i) => {
+        if(!d.name) return;
+        if(!cats[d.category]) cats[d.category]=[];
+        cats[d.category].push({...d, id:i});
+        });
+        let html = "";
+        for(let c in cats) {
+        html += `<h3 class="font-bold text-amber-800 mt-4 mb-2 text-lg">${c}</h3>`;
+        cats[c].forEach(item => {
+        html += `<div class="flex justify-between items-center bg-white p-3 mb-2 rounded shadow-sm">
+        <div><div class="font-bold">${item.name}</div><div class="text-gray-500">$${item.price}</div></div>
+        <div class="flex items-center gap-3">
+        <button onclick="add('${item.id}', -1)" class="w-8 h-8 bg-gray-200 rounded-full">-</button>
+        <span id="q-${item.id}">0</span>
+        <button onclick="add('${item.id}', 1)" class="w-8 h-8 bg-amber-100 rounded-full">+</button>
+        </div></div>`;
+        menu[item.id] = item;
+        });
+        }
+        document.getElementById('menu-area').innerHTML = html;
+        }
+        });
+
+        function add(id, n) {
+        cart[id] = (cart[id]||0) + n;
+        if(cart[id]<0) cart[id]=0;
+        document.getElementById(`q-${id}`).innerText = cart[id];
+        calc();
+        }
+
+        function calc() {
+        let sum = orders.reduce((a,b)=>a+b.total,0);
+        for(let id in cart) sum += cart[id] * menu[id].price;
+        document.getElementById('total-price').innerText = "$"+sum;
+        }
+
+        function nextPerson() {
+        let hasItem = false; for(let id in cart) if(cart[id]>0) hasItem=true;
+        if(!hasItem) return Swal.fire('空的','請先點餐','warning');
+
+        Swal.fire({
+        title: '口味選擇',
+        html: '辣度：<select id="swal-spicy" class="border p-1"><option>不辣</option><option>小辣</option><option>中辣</option><option>大辣</option></select><br><br>備註：<input id="swal-note" class="border p-1" placeholder="蔥蒜/去冰...">',
+        confirmButtonText: '確認加入'
+        }).then((result) => {
+        if (result.isConfirmed) {
+        let items = []; let subTotal = 0;
+        for(let id in cart) if(cart[id]>0) { items.push({name:menu[id].name, qty:cart[id]}); subTotal+=cart[id]*menu[id].price; }
+        orders.push({ items: items, total: subTotal, spicy: document.getElementById('swal-spicy').value, condiment: document.getElementById('swal-note').value });
+        cart = {}; document.querySelectorAll('[id^="q-"]').forEach(e=>e.innerText='0');
+        document.getElementById('current-person').innerText = `正在點：第 ${orders.length+1} 位`;
+        calc();
+        }
+        });
+        }
+
+        async function checkOut() {
+        let hasItem = false; for(let id in cart) if(cart[id]>0) hasItem=true;
+        if(hasItem) { await nextPerson(); }
+        if(orders.length===0) return Swal.fire('購物車是空的');
+
+        const { value: formValues } = await Swal.fire({
+        title: '結帳資訊',
+        html: '<select id="swal-type" class="w-full border p-2 mb-2"><option value="自取">🥡 自取</option><option value="外送">🛵 外送(滿300)</option></select>' +
+        '<input id="swal-name" class="w-full border p-2 mb-2" placeholder="姓名">' +
+        '<input id="swal-phone" class="w-full border p-2 mb-2" placeholder="電話">' +
+        '<input id="swal-address" class="w-full border p-2 mb-2" placeholder="地址 (外送必填)">',
+        focusConfirm: false,
+        preConfirm: () => { return [document.getElementById('swal-type').value, document.getElementById('swal-name').value, document.getElementById('swal-phone').value, document.getElementById('swal-address').value] }
+        });
+
+        if (formValues) {
+        let [type, name, phone, addr] = formValues;
+        if(!name || !phone) return Swal.fire('請填寫姓名電話');
+
+        let total = parseInt(document.getElementById('total-price').innerText.replace('$',''));
+        let waitTime = parseInt(config.base_time) + (localStorage.getItem('dailyCount')||0)*5;
+        let eta = new Date(Date.now() + waitTime*60000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+
+        let data = { type, name, phone, address: addr, total, subOrders: orders, eta, note: '' };
+
+        Swal.fire({title: '傳送中...', didOpen:()=>{Swal.showLoading()}});
+
+        fetch(URL_SCRIPT, {
+        method: 'POST', mode: 'no-cors',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({orderData: data})
+        }).then(()=>{
+        let count = parseInt(localStorage.getItem('dailyCount')||0)+1;
+        localStorage.setItem('dailyCount', count);
+        Swal.fire('下單成功', `單號：#${String(count).padStart(3,'0')}<br>預計 ${eta} 取餐`, 'success').then(()=>location.reload());
+        });
+        }
+        }
+    </script>
+</body>
+</html>
