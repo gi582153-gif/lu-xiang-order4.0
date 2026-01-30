@@ -49,8 +49,8 @@
     <div id="print-area" class="receipt"></div>
 
     <script>
-        // 👇👇👇 請在這裡貼上你第 1 步複製的 CSV 網址 👇👇👇
-        const ordersCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSfQ9x4tLrKSwm1WNhswVJyKYhYr3ephHrEeja7STTtSv6G_MUjfJa9MN8X6DuSgDYjtYmNX9sAqEsM/pubhtml?gid=1858812803&single=true";
+        // 🟢 我已經幫你填回正確的 CSV 網址了！
+        const ordersCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSfQ9x4tLrKSwm1WNhswVJyKYhYr3ephHrEeja7STTtSv6G_MUjfJa9MN8X6DuSgDYjtYmNX9sAqEsM/pub?gid=0&single=true&output=csv";
         
         let lastId = localStorage.getItem('lastPrintId') || "#000";
         let isRunning = false;
@@ -81,7 +81,6 @@
                     if (rows.length === 0) return;
 
                     // 🛑 關鍵修正：強制按照單號數字大小排序 (小 -> 大)
-                    // 這樣保證最後一筆一定是「最新、最大」的單號，不會跳針
                     rows.sort((a, b) => {
                         let numA = parseInt(a[0].replace(/\D/g, '')) || 0;
                         let numB = parseInt(b[0].replace(/\D/g, '')) || 0;
@@ -92,15 +91,14 @@
                     let newOrder = rows[rows.length - 1];
                     let id = newOrder[0];
                     
-                    // 2. 比對單號：只有當「新單號」不一樣時才處理
+                    // 2. 比對單號
                     if (id !== lastId) {
-                        
-                        // 額外保險：確保新單號真的比較大 (避免有人刪單導致回朔)
+                        // 額外保險：確保新單號真的比較大
                         let currentNum = parseInt(id.replace(/\D/g, '')) || 0;
                         let lastNum = parseInt(lastId.replace(/\D/g, '')) || 0;
                         
                         // 如果是新的一天 (#001)，或者是號碼比較大，都算新單
-                        if (currentNum > lastNum || (currentNum === 1 && lastNum > 10)) {
+                        if (currentNum > lastNum || (currentNum === 1 && lastNum > 10) || lastId === "#000") {
                              log(`🔔 發現新訂單: ${id}`);
                              lastId = id;
                              localStorage.setItem('lastPrintId', id);
