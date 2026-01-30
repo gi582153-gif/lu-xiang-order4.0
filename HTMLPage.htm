@@ -121,7 +121,7 @@
                 <label class="flex items-center space-x-1"><input type="checkbox" name="temp-condiment" value="蒜泥" checked><span>蒜泥</span></label>
                 <label class="flex items-center space-x-1"><input type="checkbox" name="temp-condiment" value="胡椒" checked><span>胡椒</span></label>
             </div>
-            <button onclick="confirmPersonOptions(false)" class="w-full bg-amber-800 text-white py-2 rounded font-bold">確認加入</button>
+            <button onclick="confirmPersonOptions()" class="w-full bg-amber-800 text-white py-2 rounded font-bold">確認加入</button>
         </div>
     </div>
 
@@ -135,6 +135,7 @@
         let config = { status: 'OPEN', base_time: 20 }; let currentOrderType = 'pickup';
         let customerLineId = "";
         let isProcessing = false;
+        let isCheckoutFlow = false; // 🟢 全域變數：控制現在是「加人」還是「結帳」
 
         function init() {
             checkDailyReset();
@@ -247,19 +248,29 @@
             Object.values(currentCart).forEach(q => { if(q > 0) hasItem = true; }); 
             if(!hasItem) { Swal.fire('空的', '請先點餐再加下一位', 'warning'); return; } 
             
+            isCheckoutFlow = false; // 🟢 設定為：僅加人，不結帳
             document.getElementById('opt-person-num').innerText = `第 ${confirmedOrders.length + 1} 位`; 
-            
-            // 🟢 恢復按鈕預設行為 (因為 openOrderModal 可能改過它)
-            document.querySelector('#options-modal button').onclick = function() { confirmPersonOptions(false); };
-            
             document.getElementById('options-modal').classList.remove('hidden'); 
         }
 
-        // 🟢 修正重點：多了一個 isCheckout 參數
-        function confirmPersonOptions(isCheckout) { 
+        // 🟢 結帳按鈕邏輯修正
+        function openOrderModal() { 
+            let hasCurrentItem = false; 
+            Object.values(currentCart).forEach(q => { if(q > 0) hasCurrentItem = true; }); 
+            
+            if(hasCurrentItem) { 
+                isCheckoutFlow = true; // 🟢 設定為：確認後直接結帳
+                document.getElementById('opt-person-num').innerText = `第 ${confirmedOrders.length + 1} 位 (最後一位)`; 
+                document.getElementById('options-modal').classList.remove('hidden'); 
+                return; 
+            } else if (confirmedOrders.length === 0) { Swal.fire('購物車空的', '請先點餐', 'warning'); return; } 
+            
+            showFinalModal(); 
+        }
+
+        function confirmPersonOptions() { 
             const spicy = document.querySelector('input[name="temp-spicy"]:checked').value; 
             const condiments = Array.from(document.querySelectorAll('input[name="temp-condiment"]:checked')).map(e=>e.value).join('、') || "都不加"; 
-            
             let personOrder = { id: confirmedOrders.length + 1, items: [], total: 0, spicy: spicy, condiment: condiments }; 
             menuData.forEach(cat => cat.items.forEach(item => { 
                 if(currentCart[item.id] > 0) { 
@@ -274,35 +285,16 @@
             document.getElementById('current-order-num').innerText = `第 ${confirmedOrders.length + 1} 位`; 
             calculateTotal(); 
             
-            // 🔴 只有在「不是結帳」的時候，才跳出「請點下一位」的提示
-            if (!isCheckout) {
+            // 🟢 根據全域開關決定下一步
+            if (isCheckoutFlow) {
+                showFinalModal(); // 直接去結帳，閉嘴
+            } else {
                 Swal.fire({ icon: 'success', title: '已暫存', text: '請繼續點下一位的餐點', timer: 1000, showConfirmButton: false }); 
             }
         }
 
         function calculateTotal() { let total = 0; confirmedOrders.forEach(o => total += o.total); menuData.forEach(cat => cat.items.forEach(item => { if(currentCart[item.id] > 0) total += item.price * currentCart[item.id]; })); document.getElementById('total-price').innerText = `NT$${total}`; document.getElementById('total-person-count').innerText = confirmedOrders.length + 1; return total; }
         
-        // 🟢 修改重點：結帳邏輯優化
-        function openOrderModal() { 
-            let hasCurrentItem = false; 
-            Object.values(currentCart).forEach(q => { if(q > 0) hasCurrentItem = true; }); 
-            
-            if(hasCurrentItem) { 
-                // 有未結帳餐點，先暫存目前這位，然後直接跳轉結帳 (不跳提示)
-                document.getElementById('opt-person-num').innerText = `第 ${confirmedOrders.length + 1} 位 (最後一位)`; 
-                document.getElementById('options-modal').classList.remove('hidden'); 
-                
-                // 暫時修改按鈕行為：確認口味後 -> 直接開結帳單 (true = 不跳提示)
-                document.querySelector('#options-modal button').onclick = function() { 
-                    confirmPersonOptions(true); 
-                    showFinalModal(); 
-                }; 
-                return; 
-            } else if (confirmedOrders.length === 0) { Swal.fire('購物車空的', '請先點餐', 'warning'); return; } 
-            
-            showFinalModal(); 
-        }
-
         function showFinalModal() { let listHtml = ''; let finalTotal = 0; confirmedOrders.forEach((order, idx) => { finalTotal += order.total; listHtml += `<div class="border-b border-dashed border-gray-300 pb-2 mb-2 last:border-0"><div class="flex justify-between font-bold text-amber-800 mb-1"><span>第 ${idx+1} 單</span><span class="text-xs bg-gray-200 px-2 rounded-full text-gray-600 self-center">${order.spicy} / ${order.condiment}</span></div>${order.items.map(i => `<div class="flex justify-between pl-2 text-gray-600"><span>${i.name} x${i.qty}</span><span>$${i.price * i.qty}</span></div>`).join('')}</div>`; }); document.getElementById('order-list').innerHTML = listHtml; document.getElementById('modal-total').innerText = `NT$${finalTotal}`; document.getElementById('order-modal').classList.remove('hidden'); }
         function closeModal(id = 'order-modal') { document.getElementById(id).classList.add('hidden'); }
         function setOrderType(type) { currentOrderType = type; const btnPickup = document.getElementById('btn-pickup'); const btnDelivery = document.getElementById('btn-delivery'); const addrField = document.getElementById('address-field'); if(type === 'pickup') { btnPickup.className = "flex-1 py-2 rounded-md shadow bg-white text-amber-800 transition border border-amber-200"; btnDelivery.className = "flex-1 py-2 rounded-md text-gray-500 transition hover:bg-gray-100"; addrField.classList.add('hidden'); } else { btnPickup.className = "flex-1 py-2 rounded-md text-gray-500 transition hover:bg-gray-100"; btnDelivery.className = "flex-1 py-2 rounded-md shadow bg-white text-amber-800 transition border border-amber-200"; addrField.classList.remove('hidden'); } }
