@@ -28,9 +28,7 @@
                 <span id="shop-status-light" class="w-3 h-3 rounded-full bg-green-400 border border-white shadow-[0_0_8px_#4ade80]"></span>
             </div>
             <div class="flex items-center gap-2">
-                <button onclick="openHistoryModal()" class="text-xs bg-amber-700 hover:bg-amber-600 border border-amber-600 px-2 py-1 rounded flex items-center">
-                    📜 查單
-                </button>
+                <button onclick="openHistoryModal()" class="text-xs bg-amber-700 hover:bg-amber-600 border border-amber-600 px-2 py-1 rounded flex items-center">📜 查單</button>
                 <div id="liff-status" class="text-xs bg-amber-900 px-2 py-1 rounded text-gray-300 hidden"></div>
                 <button id="liff-login-btn" onclick="liff.login()" class="hidden bg-[#06C755] hover:bg-[#05b34c] text-white text-xs px-2 py-1 rounded font-bold shadow">LINE 登入</button>
             </div>
@@ -128,13 +126,13 @@
 
     <script>
         // ==========================================
-        // 🟢 網址與 ID 區
+        // 🟢 網址與 ID 區 (已幫你填好！)
         // ==========================================
         const menuCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSfQ9x4tLrKSwm1WNhswVJyKYhYr3ephHrEeja7STTtSv6G_MUjfJa9MN8X6DuSgDYjtYmNX9sAqEsM/pub?gid=127414704&single=true&output=csv";
         const configCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSfQ9x4tLrKSwm1WNhswVJyKYhYr3ephHrEeja7STTtSv6G_MUjfJa9MN8X6DuSgDYjtYmNX9sAqEsM/pub?gid=1561447100&single=true&output=csv";
         const scriptUrl = "https://script.google.com/macros/s/AKfycbzzF0XfnyIfVa1gc9I7fvUaEJiQW8xyuiGlWPXkFOhIVNJ1O52Lpwx6ipmmHNoPkmbvew/exec";
         
-        // 👇👇👇 請在這裡貼上你申請的 LIFF ID 👇👇👇
+        // 🟢 這是從你截圖裡找到的 ID
         const LIFF_ID = "2009008890-ktXXza53"; 
         // ==========================================
 
@@ -174,12 +172,11 @@
             } catch (err) { console.error('LIFF Error', err); }
         }
 
-        // 🟢 歷史訂單相關功能
         function saveOrderToHistory(orderData) {
             let history = JSON.parse(localStorage.getItem('orderHistory') || '[]');
             orderData.timestamp = new Date().toLocaleString();
-            history.unshift(orderData); // 最新的放前面
-            if(history.length > 10) history.pop(); // 只留最近10筆
+            history.unshift(orderData);
+            if(history.length > 10) history.pop();
             localStorage.setItem('orderHistory', JSON.stringify(history));
         }
 
@@ -215,13 +212,29 @@
 
         function checkShopStatus() { const light = document.getElementById('shop-status-light'); if(config.status && (config.status.toUpperCase() === 'CLOSE' || config.status === '休息')) { document.getElementById('closed-overlay').style.display = 'flex'; document.body.style.overflow = 'hidden'; light.className = "w-3 h-3 rounded-full bg-red-500 border border-white shadow-[0_0_8px_#ef4444]"; } else { document.getElementById('closed-overlay').style.display = 'none'; document.body.style.overflow = 'auto'; light.className = "w-3 h-3 rounded-full bg-green-400 border border-white shadow-[0_0_8px_#4ade80]"; } }
         function processMenu(rawData) { let categories = {}; rawData.forEach((item, index) => { if(!item.name) return; if (!categories[item.category]) categories[item.category] = []; categories[item.category].push({ id: index, name: item.name, price: Number(item.price), image: item.image || "", unit: item.unit, soldOut: item.on_sale && item.on_sale.toUpperCase() !== 'TRUE' }); }); menuData = Object.keys(categories).map(key => ({ category: key, items: categories[key] })); document.getElementById('loading').classList.add('hidden'); document.getElementById('menu-container').classList.remove('hidden'); renderMenu(); }
-        function renderMenu() { const container = document.getElementById('menu-container'); let html = ''; menuData.forEach(cat => { html += `<h3 class="category-header text-lg font-bold text-amber-800 mt-2 mb-2 sticky top-[60px] bg-gray-50 py-2 z-10">${cat.category}</h3><div class="space-y-3">`; cat.items.forEach(item => { const isSoldOut = item.soldOut; const opacityClass = isSoldOut ? "opacity-60 grayscale" : ""; let imgHtml = (item.image && item.image.startsWith('http')) ? `<img src="${item.image}" class="w-20 h-20 object-cover rounded-md mr-3 flex-shrink-0 bg-gray-200">` : ""; let unitHtml = item.unit ? `<span class="text-xs text-gray-400 font-normal">/ ${item.unit}</span>` : ""; html += `<div class="flex ${opacityClass} bg-white p-3 rounded-xl shadow-sm border border-gray-100 items-center">${imgHtml}<div class="flex-1 min-w-0"><h4 class="font-bold text-gray-800 truncate text-lg">${item.name}</h4><p class="text-amber-600 font-bold">$${item.price} ${unitHtml}</p></div><div class="flex items-center space-x-2 ${isSoldOut ? "hidden" : ""}"><button onclick="updateCart(${item.id}, -1)" class="w-8 h-8 rounded-full bg-gray-100 text-gray-600 font-bold active:bg-gray-200 text-xl flex items-center justify-center">-</button><span id="qty-${item.id}" class="w-6 text-center font-bold text-lg">0</span><button onclick="updateCart(${item.id}, 1)" class="w-8 h-8 rounded-full bg-amber-100 text-amber-800 font-bold active:bg-amber-200 text-xl flex items-center justify-center">+</button></div></div>`; }); html += `</div>`; }); container.innerHTML = html; }
+        
+        function renderMenu() { 
+            const container = document.getElementById('menu-container'); 
+            let html = ''; 
+            menuData.forEach(cat => { 
+                html += `<h3 class="category-header text-lg font-bold text-amber-800 mt-2 mb-2 sticky top-[60px] bg-gray-50 py-2 z-10">${cat.category}</h3><div class="space-y-3">`; 
+                cat.items.forEach(item => { 
+                    const isSoldOut = item.soldOut; 
+                    const opacityClass = isSoldOut ? "opacity-60 grayscale" : ""; 
+                    let imgHtml = (item.image && item.image.startsWith('http')) ? `<img src="${item.image}" class="w-20 h-20 object-cover rounded-md mr-3 flex-shrink-0 bg-gray-200">` : ""; 
+                    let unitHtml = item.unit ? `<span class="text-xs text-gray-400 font-normal">/ ${item.unit}</span>` : ""; 
+                    html += `<div class="flex ${opacityClass} bg-white p-3 rounded-xl shadow-sm border border-gray-100 items-center">${imgHtml}<div class="flex-1 min-w-0"><h4 class="font-bold text-gray-800 truncate text-lg">${item.name}</h4><p class="text-amber-600 font-bold">$${item.price} ${unitHtml}</p></div><div class="flex items-center space-x-2 ${isSoldOut ? "hidden" : ""}"><button onclick="updateCart(${item.id}, -1)" class="w-8 h-8 rounded-full bg-gray-100 text-gray-600 font-bold active:bg-gray-200 text-xl flex items-center justify-center">-</button><span id="qty-${item.id}" class="w-6 text-center font-bold text-lg">0</span><button onclick="updateCart(${item.id}, 1)" class="w-8 h-8 rounded-full bg-amber-100 text-amber-800 font-bold active:bg-amber-200 text-xl flex items-center justify-center">+</button></div></div>`; 
+                }); 
+                html += `</div>`; 
+            }); 
+            container.innerHTML = html; 
+        }
+
         function updateCart(itemId, change) { if (!currentCart[itemId]) currentCart[itemId] = 0; currentCart[itemId] += change; if (currentCart[itemId] < 0) currentCart[itemId] = 0; document.getElementById(`qty-${itemId}`).innerText = currentCart[itemId]; calculateTotal(); }
         function finishCurrentPerson() { let hasItem = false; Object.values(currentCart).forEach(q => { if(q > 0) hasItem = true; }); if(!hasItem) { Swal.fire('空的', '請先點餐再加下一位', 'warning'); return; } document.getElementById('opt-person-num').innerText = `第 ${confirmedOrders.length + 1} 位`; document.getElementById('options-modal').classList.remove('hidden'); }
         function confirmPersonOptions() { const spicy = document.querySelector('input[name="temp-spicy"]:checked').value; const condiments = Array.from(document.querySelectorAll('input[name="temp-condiment"]:checked')).map(e=>e.value).join('、') || "都不加"; let personOrder = { id: confirmedOrders.length + 1, items: [], total: 0, spicy: spicy, condiment: condiments }; menuData.forEach(cat => cat.items.forEach(item => { if(currentCart[item.id] > 0) { personOrder.items.push({name: item.name, qty: currentCart[item.id], price: item.price}); personOrder.total += item.price * currentCart[item.id]; } })); confirmedOrders.push(personOrder); currentCart = {}; document.querySelectorAll('[id^="qty-"]').forEach(el => el.innerText = '0'); document.getElementById('options-modal').classList.add('hidden'); document.getElementById('current-order-num').innerText = `第 ${confirmedOrders.length + 1} 位`; calculateTotal(); Swal.fire({ icon: 'success', title: '已暫存', text: '請繼續點下一位的餐點', timer: 1000, showConfirmButton: false }); }
         function calculateTotal() { let total = 0; confirmedOrders.forEach(o => total += o.total); menuData.forEach(cat => cat.items.forEach(item => { if(currentCart[item.id] > 0) total += item.price * currentCart[item.id]; })); document.getElementById('total-price').innerText = `NT$${total}`; document.getElementById('total-person-count').innerText = confirmedOrders.length + 1; return total; }
         function openOrderModal() { let hasCurrentItem = false; Object.values(currentCart).forEach(q => { if(q > 0) hasCurrentItem = true; }); if(hasCurrentItem) { document.getElementById('opt-person-num').innerText = `第 ${confirmedOrders.length + 1} 位 (最後一位)`; document.getElementById('options-modal').classList.remove('hidden'); document.querySelector('#options-modal button').onclick = function() { confirmPersonOptions(); document.querySelector('#options-modal button').onclick = confirmPersonOptions; showFinalModal(); }; return; } else if (confirmedOrders.length === 0) { Swal.fire('購物車空的', '請先點餐', 'warning'); return; } showFinalModal(); }
-        function showFinalModal() { let listHtml = ''; let finalTotal = 0; confirmedOrders.forEach((order, idx) => { finalTotal += order.total; listHtml += `<div class="border-b border-dashed border-gray-300 pb-2 mb-2 last:border-0"><div class="flex justify-between font-bold text-amber-800 mb-1"><span>第 ${idx+1} 單</span><span class="text-xs bg-gray-200 px-2 rounded-full text-gray-600 self-center">${order.spicy} / ${order.condiment}</span></div>${order.items.map(i => `<div class="flex justify-between pl-2 text-gray-600"><span>${i.name} x${i.qty}</span><span>$${i.price * i.qty}</span></div>`).join('')}</div>`; }); document.getElementById('order-list').innerHTML = listHtml; document.getElementById('modal-total').innerText = `NT$${finalTotal}`; document.getElementById('order-modal').classList.remove('hidden'); }
         function closeModal(id = 'order-modal') { document.getElementById(id).classList.add('hidden'); }
         function setOrderType(type) { currentOrderType = type; const btnPickup = document.getElementById('btn-pickup'); const btnDelivery = document.getElementById('btn-delivery'); const addrField = document.getElementById('address-field'); if(type === 'pickup') { btnPickup.className = "flex-1 py-2 rounded-md shadow bg-white text-amber-800 transition border border-amber-200"; btnDelivery.className = "flex-1 py-2 rounded-md text-gray-500 transition hover:bg-gray-100"; addrField.classList.add('hidden'); } else { btnPickup.className = "flex-1 py-2 rounded-md text-gray-500 transition hover:bg-gray-100"; btnDelivery.className = "flex-1 py-2 rounded-md shadow bg-white text-amber-800 transition border border-amber-200"; addrField.classList.remove('hidden'); } }
         function updateWaitTimeDisplay() { let dailyCount = parseInt(localStorage.getItem('dailyCount') || 0); let estimatedTime = config.base_time + (dailyCount % 10 * 2); document.getElementById('wait-time-display').innerText = `${estimatedTime}-${estimatedTime+10}`; }
@@ -265,7 +278,7 @@
                 body: JSON.stringify({ orderData: orderData })
             }).then(() => {
                 localStorage.setItem('dailyCount', dailyCount);
-                saveOrderToHistory(orderData); // 🟢 存入歷史
+                saveOrderToHistory(orderData);
                 closeModal('order-modal');
                 Swal.fire({
                     title: '下單成功！', icon: 'success',
@@ -281,4 +294,3 @@
     </script>
 </body>
 </html>
-  
