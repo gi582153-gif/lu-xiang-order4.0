@@ -5,96 +5,132 @@
     <title>滷香饌 - 自動接單後台</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
     <style>
-        body { font-family: monospace; background: #222; color: #0f0; padding: 20px; }
-        .box { border: 1px solid #444; padding: 20px; margin-bottom: 20px; background: #000; }
-        .log { color: #888; font-size: 12px; height: 300px; overflow-y: auto; border-top: 1px solid #333; margin-top: 10px; }
-        @media print { .no-print { display: none; } body { background: white; color: black; margin: 0; padding: 0; } }
-        /* 收據樣式 */
-        .receipt { display: none; width: 100%; max-width: 300px; font-family: 'Noto Sans TC', sans-serif; font-size: 14px; }
-        @media print { .receipt { display: block; } }
-        .r-header { text-align: center; border-bottom: 2px dashed #000; padding-bottom: 10px; margin-bottom: 10px; }
-        .r-big { font-size: 24px; font-weight: 900; }
-        .r-item { display: flex; justify-content: space-between; margin-bottom: 4px; }
-        .r-sub { font-weight: bold; background: #eee; padding: 2px; margin-top: 5px; }
+        /* 平常螢幕看到的樣子 (黑色帥氣後台) */
+        body { font-family: "Courier New", monospace; background: #222; color: #0f0; padding: 20px; }
+        .box { border: 2px solid #444; padding: 30px; max-width: 600px; margin: 0 auto; background: #000; text-align: center; }
+        .status-dot { height: 15px; width: 15px; background-color: #bbb; border-radius: 50%; display: inline-block; margin-right: 10px; }
+        .status-active { background-color: #0f0; box-shadow: 0 0 10px #0f0; }
+        .log { color: #888; font-size: 14px; height: 300px; overflow-y: auto; border-top: 1px solid #333; margin-top: 20px; text-align: left; padding: 10px; }
+        
+        /* 🖨️ 列印時的樣子 (這才是印出來的收據) */
+        @media print {
+            .no-print { display: none !important; } /* 把後台介面隱藏 */
+            body { background: white; color: black; margin: 0; padding: 0; font-family: 'Verdana', sans-serif; }
+            .receipt { display: block !important; width: 100%; max-width: 300px; font-size: 14px; padding: 10px; }
+            .r-header { text-align: center; border-bottom: 2px dashed #000; padding-bottom: 10px; margin-bottom: 10px; }
+            .r-title { font-size: 24px; font-weight: 900; margin-bottom: 5px; }
+            .r-id { font-size: 32px; font-weight: 900; margin: 5px 0; border: 2px solid #000; display: inline-block; padding: 2px 10px; }
+            .r-info { font-size: 16px; font-weight: bold; margin-bottom: 5px; }
+            .r-item { display: flex; justify-content: space-between; margin-bottom: 4px; padding-left: 10px; }
+            .r-sub { font-weight: bold; background: #eee; padding: 4px; margin-top: 8px; border-left: 4px solid #555; }
+            .r-total { border-top: 2px dashed #000; margin-top: 10px; padding-top: 5px; font-size: 20px; font-weight: bold; display: flex; justify-content: space-between; }
+        }
+        .receipt { display: none; } /* 平常隱藏收據 */
     </style>
 </head>
 <body>
 
     <div class="no-print">
         <div class="box">
-            <h2>🖨️ 自動出單系統</h2>
-            <div id="status">等待啟動...</div>
-            <div style="margin-top:10px;">最新單號：<span id="last-id" style="font-weight:bold; color:white;">--</span></div>
-            <button onclick="start()" style="margin-top:20px; padding:10px 20px; font-size:16px; cursor:pointer;">▶️ 啟動自動接單</button>
-            <div class="log" id="log"></div>
+            <h1>🖨️ 滷香饌 自動接單機</h1>
+            <div style="margin-bottom: 20px;">
+                <span id="status-dot" class="status-dot"></span>
+                <span id="status-text">等待啟動...</span>
+            </div>
+            <div style="font-size: 20px; margin-bottom: 20px;">
+                最新單號：<span id="last-id" style="font-weight:bold; color:white; font-size: 30px;">--</span>
+            </div>
+            <button onclick="start()" style="padding:15px 30px; font-size:20px; cursor:pointer; background: #0f0; border:none; border-radius: 5px; font-weight:bold;">▶️ 啟動監控</button>
+            <button onclick="testPrint()" style="padding:15px 30px; font-size:20px; cursor:pointer; background: #fff; border:none; border-radius: 5px; font-weight:bold; margin-left: 10px;">🧪 測試列印</button>
+            <div class="log" id="log">系統紀錄...</div>
         </div>
     </div>
 
     <div id="print-area" class="receipt"></div>
 
     <script>
-        // 🟢 這裡貼上你的 ORDERS CSV 網址 (不是 MENU 喔！)
-        // 請去試算表 -> orders 分頁 -> 發布到網路 -> 複製 CSV 網址
-        const ordersCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSfQ9x4tLrKSwm1WNhswVJyKYhYr3ephHrEeja7STTtSv6G_MUjfJa9MN8X6DuSgDYjtYmNX9sAqEsM/pub?gid=0&single=true&output=csv"; // ⚠️ 請換成你的 Orders CSV 網址 (gid通常不是0)
-
+        // 👇👇👇 請在這裡貼上第 1 步複製的 CSV 網址 👇👇👇
+        const ordersCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSfQ9x4tLrKSwm1WNhswVJyKYhYr3ephHrEeja7STTtSv6G_MUjfJa9MN8X6DuSgDYjtYmNX9sAqEsM/pub?gid=1858812803&single=true&output=csv";
+        
         let lastId = localStorage.getItem('lastPrintId') || "無";
         let isRunning = false;
+        let checkInterval = null;
 
         document.getElementById('last-id').innerText = lastId;
 
         function start() {
             if(isRunning) return;
             isRunning = true;
-            document.getElementById('status').innerText = "🟢 監控中 (每 5 秒檢查)";
-            document.getElementById('status').style.color = "#0f0";
-            setInterval(checkOrders, 5000);
+            document.getElementById('status-text').innerText = "🟢 監控中 (每 5 秒檢查一次)";
+            document.getElementById('status-dot').classList.add('status-active');
+            log("系統啟動，開始監聽訂單...");
+            
+            // 立即檢查一次，然後每 5 秒檢查一次
             checkOrders();
+            checkInterval = setInterval(checkOrders, 5000);
         }
 
         function checkOrders() {
+            // 加時間參數避免快取
             const url = ordersCsvUrl + "&t=" + Date.now();
+            
             Papa.parse(url, {
-                download: true, header: false,
+                download: true,
+                header: false,
                 complete: function(res) {
-                    let rows = res.data.filter(r => r[0] && r[0].startsWith('#'));
+                    // 過濾出有單號的列 (假設單號在第 A 欄，也就是索引 0)
+                    let rows = res.data.filter(r => r[0] && r[0].toString().startsWith('#'));
+                    
                     if (rows.length === 0) return;
                     
-                    let newOrder = rows[rows.length - 1]; // 抓最後一筆
+                    // 抓最後一筆訂單
+                    let newOrder = rows[rows.length - 1];
                     let id = newOrder[0];
                     
+                    // 如果發現新單號 (跟記憶中的不一樣)
                     if (id !== lastId) {
-                        log(`發現新訂單: ${id}`);
+                        log(`🔔 發現新訂單: ${id}`);
                         lastId = id;
                         localStorage.setItem('lastPrintId', id);
                         document.getElementById('last-id').innerText = id;
                         
                         try {
-                            let jsonStr = newOrder[8]; // 假設 JSON 在第 I 欄 (索引8)
-                            print(JSON.parse(jsonStr));
+                            // 嘗試讀取第 I 欄 (索引 8) 的 JSON 資料
+                            let jsonStr = newOrder[8]; 
+                            if(jsonStr) {
+                                printReceipt(JSON.parse(jsonStr));
+                            } else {
+                                log("⚠️ 警告：找不到 JSON 資料，嘗試印簡易版");
+                                printSimple(newOrder);
+                            }
                         } catch(e) {
-                            log("解析失敗，嘗試印簡易版");
+                            log("❌ 解析失敗：" + e);
                             printSimple(newOrder);
                         }
                     }
+                },
+                error: function(err) {
+                    log("❌ 連線錯誤：" + err);
                 }
             });
         }
 
-        function print(data) {
+        function printReceipt(data) {
             let html = `
                 <div class="r-header">
-                    <div class="r-big">滷香饌</div>
-                    <div>單號：<span class="r-big">${data.id.replace('#','')}</span></div>
-                    <div>${data.type} / ${data.eta} 取餐</div>
+                    <div class="r-title">滷香饌</div>
+                    <div class="r-id">${data.id.replace('#','')}</div>
+                    <div class="r-info">${data.type} / ${data.eta} 取餐</div>
                 </div>
-                <div>${data.name} / ${data.phone}</div>
+                <div style="font-size:18px; font-weight:bold;">${data.name}</div>
+                <div>${data.phone}</div>
                 ${data.address ? `<div>📍 ${data.address}</div>` : ''}
-                <div style="border-bottom:1px solid #000; margin:5px 0;"></div>
+                <div style="border-bottom:2px solid #000; margin:10px 0;"></div>
             `;
             
             if(data.subOrders) {
                 data.subOrders.forEach((sub, i) => {
-                    html += `<div class="r-sub">👤 P${i+1} (${sub.spicy}/${sub.condiment})</div>`;
+                    html += `<div class="r-sub">👤 第 ${i+1} 位 (${sub.spicy}/${sub.condiment})</div>`;
                     sub.items.forEach(item => {
                         html += `<div class="r-item"><span>${item.name}</span><span>x${item.qty}</span></div>`;
                     });
@@ -102,31 +138,59 @@
             }
 
             html += `
-                <div style="border-top:2px dashed #000; margin-top:10px; padding-top:5px; font-size:20px; font-weight:bold; display:flex; justify-content:space-between;">
+                <div class="r-total">
                     <span>總計</span><span>$${data.total}</span>
                 </div>
-                <div style="margin-top:5px; font-size:12px;">備註：${data.note||'無'}</div>
-                <div style="text-align:center; margin-top:10px; font-size:12px;">-- 謝謝光臨 --</div>
+                <div style="margin-top:10px; font-size:14px; border: 1px solid #000; padding: 5px;">
+                    <b>備註：</b><br>${data.note || '無'}
+                </div>
+                <div style="text-align:center; margin-top:15px; font-size:12px;">-- 謝謝光臨 --</div>
+                <div style="text-align:center; font-size:10px;">${new Date().toLocaleString()}</div>
             `;
             
             document.getElementById('print-area').innerHTML = html;
+            log("🖨️ 正在列印單號 " + data.id);
+            
+            // 延遲 500ms 讓圖片渲染完再印
+            setTimeout(() => {
+                window.print();
+            }, 500);
+        }
+
+        // 備用方案：如果 JSON 解析失敗，印純文字版
+        function printSimple(row) {
+            document.getElementById('print-area').innerHTML = `
+                <div class="r-header"><div class="r-title">滷香饌</div></div>
+                <h1>${row[0]}</h1>
+                <h2>${row[1]}</h2>
+                <p>${row[2]} / ${row[3]}</p>
+                <hr>
+                <pre style="font-size:16px;">${row[7]}</pre>
+                <hr>
+                <h1>總計：${row[6]}</h1>
+            `;
             setTimeout(() => window.print(), 500);
         }
 
-        function printSimple(row) {
-            document.getElementById('print-area').innerHTML = `
-                <div class="r-header"><div class="r-big">滷香饌</div><div>單號：${row[0]}</div></div>
-                <div>${row[7]}</div>
-                <div class="r-big">總金額：${row[6]}</div>
-            `;
-            setTimeout(() => window.print(), 500);
+        function testPrint() {
+            printReceipt({
+                id: "#測試", type: "自取", eta: "12:00",
+                name: "測試員", phone: "0900-000-000",
+                total: 100, note: "這是測試列印",
+                subOrders: [{
+                    spicy: "小辣", condiment: "全加",
+                    items: [{name: "招牌拼盤", qty: 1}]
+                }]
+            });
         }
 
         function log(msg) {
             let d = new Date().toLocaleTimeString();
-            document.getElementById('log').innerHTML = `<div>[${d}] ${msg}</div>` + document.getElementById('log').innerHTML;
+            let p = document.createElement('div');
+            p.innerText = `[${d}] ${msg}`;
+            let box = document.getElementById('log');
+            box.prepend(p);
         }
     </script>
 </body>
 </html>
-  
