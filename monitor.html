@@ -2,159 +2,130 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>滷香饌 - 接單後台</title>
+    <title>滷香饌 - 自動接單後台</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
     <style>
         body { font-family: monospace; background: #222; color: #0f0; padding: 20px; }
-        .status-box { border: 1px solid #444; padding: 15px; margin-bottom: 20px; background: #000; }
-        .log-area { height: 300px; overflow-y: auto; font-size: 13px; color: #ccc; border-top: 1px dotted #333; padding-top: 10px; }
-        button { font-size: 18px; padding: 8px 20px; cursor: pointer; background: #006600; color: white; border: none; }
-        
-        @media print {
-            @page { margin: 0; }
-            body { background: white; color: black; margin: 0; padding: 0; width: 100%; }
-            .no-print { display: none !important; }
-            .receipt { display: block !important; padding: 5px 10px; font-family: 'Noto Sans TC', sans-serif; font-size: 14px; }
-            .big-text { font-size: 24px; font-weight: 900; }
-            .med-text { font-size: 18px; font-weight: bold; }
-            .box-border { border: 2px solid #000; padding: 5px; text-align: center; margin-bottom: 10px; }
-            .section { border-bottom: 2px dashed #000; padding-bottom: 5px; margin-bottom: 5px; }
-            .item { display: flex; justify-content: space-between; font-size: 16px; margin-bottom: 4px; }
-        }
-        .receipt { display: none; } 
+        .box { border: 1px solid #444; padding: 20px; margin-bottom: 20px; background: #000; }
+        .log { color: #888; font-size: 12px; height: 300px; overflow-y: auto; border-top: 1px solid #333; margin-top: 10px; }
+        @media print { .no-print { display: none; } body { background: white; color: black; margin: 0; padding: 0; } }
+        /* 收據樣式 */
+        .receipt { display: none; width: 100%; max-width: 300px; font-family: 'Noto Sans TC', sans-serif; font-size: 14px; }
+        @media print { .receipt { display: block; } }
+        .r-header { text-align: center; border-bottom: 2px dashed #000; padding-bottom: 10px; margin-bottom: 10px; }
+        .r-big { font-size: 24px; font-weight: 900; }
+        .r-item { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .r-sub { font-weight: bold; background: #eee; padding: 2px; margin-top: 5px; }
     </style>
 </head>
 <body>
 
     <div class="no-print">
-        <div class="status-box">
-            <h2>🖨️ 接單監控系統 (Flagship版)</h2>
-            <div id="connection-status" style="color:yellow;">等待啟動...</div>
-            <div>最新單號：<span id="current-id" style="font-weight:bold; color: white;">--</span></div>
+        <div class="box">
+            <h2>🖨️ 自動出單系統</h2>
+            <div id="status">等待啟動...</div>
+            <div style="margin-top:10px;">最新單號：<span id="last-id" style="font-weight:bold; color:white;">--</span></div>
+            <button onclick="start()" style="margin-top:20px; padding:10px 20px; font-size:16px; cursor:pointer;">▶️ 啟動自動接單</button>
+            <div class="log" id="log"></div>
         </div>
-        <button onclick="startMonitor()" id="start-btn">▶️ 啟動接單</button>
-        <button onclick="testPrint()" style="background:#555; margin-left:10px;">🖨️ 測試列印</button>
-        <div class="log-area" id="log-area"></div>
     </div>
 
-    <div id="receipt-area" class="receipt"></div>
+    <div id="print-area" class="receipt"></div>
 
     <script>
-        // ==========================================
-        // 🔴 請填入你的 ORDERS CSV 網址
-        // ==========================================
-        const ordersCsvUrl = "你的_ORDERS_CSV網址"; 
-        // ==========================================
+        // 🟢 這裡貼上你的 ORDERS CSV 網址 (不是 MENU 喔！)
+        // 請去試算表 -> orders 分頁 -> 發布到網路 -> 複製 CSV 網址
+        const ordersCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSfQ9x4tLrKSwm1WNhswVJyKYhYr3ephHrEeja7STTtSv6G_MUjfJa9MN8X6DuSgDYjtYmNX9sAqEsM/pub?gid=0&single=true&output=csv"; // ⚠️ 請換成你的 Orders CSV 網址 (gid通常不是0)
 
-        let lastOrderId = localStorage.getItem('lastPrintedId') || "無";
+        let lastId = localStorage.getItem('lastPrintId') || "無";
         let isRunning = false;
 
-        document.getElementById('current-id').innerText = lastOrderId;
+        document.getElementById('last-id').innerText = lastId;
 
-        function startMonitor() {
-            if (isRunning) return;
+        function start() {
+            if(isRunning) return;
             isRunning = true;
-            document.getElementById('start-btn').innerText = "🟢 監控中";
-            document.getElementById('start-btn').style.background = "#004400";
-            log("系統啟動，開始連接...");
-            checkOrders();
+            document.getElementById('status').innerText = "🟢 監控中 (每 5 秒檢查)";
+            document.getElementById('status').style.color = "#0f0";
             setInterval(checkOrders, 5000);
+            checkOrders();
         }
 
         function checkOrders() {
-            const cacheBusterUrl = ordersCsvUrl + (ordersCsvUrl.includes('?') ? '&' : '?') + "t=" + new Date().getTime();
-            Papa.parse(cacheBusterUrl, {
+            const url = ordersCsvUrl + "&t=" + Date.now();
+            Papa.parse(url, {
                 download: true, header: false,
-                complete: function(results) {
-                    document.getElementById('connection-status').innerText = "🟢 連線正常";
-                    let rows = results.data.filter(r => r && r.length > 0 && r[0] !== '' && r[0] !== '單號');
+                complete: function(res) {
+                    let rows = res.data.filter(r => r[0] && r[0].startsWith('#'));
                     if (rows.length === 0) return;
-
-                    let lastRow = rows[rows.length - 1];
-                    let serverId = lastRow[0]; 
-                    let jsonStr = lastRow[8]; 
-
-                    if (serverId && serverId !== lastOrderId && serverId.startsWith("#")) {
-                        log(`🔔 新訂單：${serverId}`);
-                        lastOrderId = serverId;
-                        localStorage.setItem('lastPrintedId', serverId);
-                        document.getElementById('current-id').innerText = serverId;
+                    
+                    let newOrder = rows[rows.length - 1]; // 抓最後一筆
+                    let id = newOrder[0];
+                    
+                    if (id !== lastId) {
+                        log(`發現新訂單: ${id}`);
+                        lastId = id;
+                        localStorage.setItem('lastPrintId', id);
+                        document.getElementById('last-id').innerText = id;
+                        
                         try {
-                            if(jsonStr) printOrder(JSON.parse(jsonStr));
-                            else printSimple(lastRow);
-                        } catch (e) { printSimple(lastRow); }
+                            let jsonStr = newOrder[8]; // 假設 JSON 在第 I 欄 (索引8)
+                            print(JSON.parse(jsonStr));
+                        } catch(e) {
+                            log("解析失敗，嘗試印簡易版");
+                            printSimple(newOrder);
+                        }
                     }
                 }
             });
         }
 
-        function printOrder(data) {
-            log(`🖨️ 列印 ${data.id}...`);
-            let typeLabel = data.type === '外送' ? '🛵 外送' : '🥡 自取';
-            
+        function print(data) {
             let html = `
-                <div style="text-align:center; margin-bottom:10px;">
-                    <div class="big-text">滷香饌</div>
-                    <div style="font-size:12px;">${new Date().toLocaleString()}</div>
+                <div class="r-header">
+                    <div class="r-big">滷香饌</div>
+                    <div>單號：<span class="r-big">${data.id.replace('#','')}</span></div>
+                    <div>${data.type} / ${data.eta} 取餐</div>
                 </div>
-                
-                <div class="box-border">
-                    <div class="big-text">${data.id.replace('#','')}</div>
-                    <div class="med-text">${typeLabel}</div>
-                    <div style="font-size:20px; font-weight:bold;">${data.eta} 取</div>
-                </div>
-
-                <div class="section">
-                    <div style="font-size:16px; font-weight:bold;">${data.name}</div>
-                    <div>${data.phone}</div>
-                    ${data.type==='外送' ? `<div style="font-weight:bold;">📍 ${data.address}</div>` : ''}
-                    <div style="margin-top:5px; border:1px solid #000; padding:2px;">備註：${data.note || '無'}</div>
-                </div>
+                <div>${data.name} / ${data.phone}</div>
+                ${data.address ? `<div>📍 ${data.address}</div>` : ''}
+                <div style="border-bottom:1px solid #000; margin:5px 0;"></div>
             `;
             
             if(data.subOrders) {
-                data.subOrders.forEach((sub, idx) => {
-                    html += `<div class="section"><div style="font-weight:bold; background:#eee;">👤 第 ${idx+1} 位 (${sub.spicy}/${sub.condiment})</div>`;
+                data.subOrders.forEach((sub, i) => {
+                    html += `<div class="r-sub">👤 P${i+1} (${sub.spicy}/${sub.condiment})</div>`;
                     sub.items.forEach(item => {
-                        html += `<div class="item"><span>${item.name}</span><span>x${item.qty}</span></div>`;
+                        html += `<div class="r-item"><span>${item.name}</span><span>x${item.qty}</span></div>`;
                     });
-                    html += `</div>`;
                 });
             }
 
             html += `
-                <div style="display:flex; justify-content:space-between; font-size:24px; font-weight:bold; margin-top:10px;">
-                    <span>總金額</span>
-                    <span>$${data.total}</span>
+                <div style="border-top:2px dashed #000; margin-top:10px; padding-top:5px; font-size:20px; font-weight:bold; display:flex; justify-content:space-between;">
+                    <span>總計</span><span>$${data.total}</span>
                 </div>
-                <div style="text-align:center; margin-top:15px; font-size:12px;">
-                    * |||| ||||| |||| ||||| *
-                </div>
+                <div style="margin-top:5px; font-size:12px;">備註：${data.note||'無'}</div>
+                <div style="text-align:center; margin-top:10px; font-size:12px;">-- 謝謝光臨 --</div>
             `;
-
-            document.getElementById('receipt-area').innerHTML = html;
-            setTimeout(() => { window.print(); }, 500);
+            
+            document.getElementById('print-area').innerHTML = html;
+            setTimeout(() => window.print(), 500);
         }
 
         function printSimple(row) {
-             // 簡易版列印
-             document.getElementById('receipt-area').innerHTML = `
-                <div style="text-align:center; font-weight:bold; font-size:18px;">滷香饌 (簡易單)</div>
-                <div style="text-align:center; font-size:24px; border:1px solid #000;">${row[0]}</div>
-                <div style="margin-top:10px;">${row[7] ? row[7].replace(/\n/g, '<br>') : '內容讀取失敗'}</div>
-                <div style="font-weight:bold; margin-top:10px; font-size:20px;">總金額：${row[6]}</div>
-             `;
-             setTimeout(() => window.print(), 500);
+            document.getElementById('print-area').innerHTML = `
+                <div class="r-header"><div class="r-big">滷香饌</div><div>單號：${row[0]}</div></div>
+                <div>${row[7]}</div>
+                <div class="r-big">總金額：${row[6]}</div>
+            `;
+            setTimeout(() => window.print(), 500);
         }
 
-        function testPrint() {
-            printOrder({
-                id: "#001", type: "外送", name: "測試員", phone: "0912345678", address: "測試路1號",
-                eta: "18:30", total: 180, note: "不要香菜",
-                subOrders: [{spicy:"小辣", condiment:"酸菜", items:[{name:"大腸", qty:2}, {name:"米血", qty:1}]}]
-            });
+        function log(msg) {
+            let d = new Date().toLocaleTimeString();
+            document.getElementById('log').innerHTML = `<div>[${d}] ${msg}</div>` + document.getElementById('log').innerHTML;
         }
-        function log(msg) { document.getElementById('log-area').innerHTML = `<div>${msg}</div>` + document.getElementById('log-area').innerHTML; }
     </script>
 </body>
 </html>
